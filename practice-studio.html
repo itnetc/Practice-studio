@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Practice Studio" />
+  <meta name="theme-color" content="#0a0d18" />
+  <title>Practice Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #0a0d18; color: #e2e8f0; font-family: 'DM Sans', sans-serif; -webkit-text-size-adjust: 100%; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0d18; }
+    ::-webkit-scrollbar-thumb { background: #2d3548; border-radius: 3px; }
+    input, select, textarea, button { font-family: inherit; }
+    input:focus, select:focus, textarea:focus { border-color: #6366f1 !important; outline: none; }
+    button:active { opacity: 0.85; transform: scale(0.98); }
+    #root { height: 100%; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const { useState, useEffect, useRef } = React;
+
+// ── Storage ─────────────────────────────────────────────────────────────────
+const STORAGE_KEY = "practiceApp_v1";
+function loadData() {
+  try { const r = localStorage.getItem(STORAGE_KEY); if (r) return JSON.parse(r); } catch {}
+  return null;
+}
+function saveData(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+}
+
+// ── Default state ────────────────────────────────────────────────────────────
+const DEFAULT_STATE = {
+  courses: [],
+  topics: [],
+  exercises: [],
+  weeklyPlan: [],
+  sessions: [],
+};
+
+// ── Utils ────────────────────────────────────────────────────────────────────
+let _idc = Date.now();
+const uid = () => (++_idc).toString(36);
+
+function weekStart(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - d.getDay() + 1);
+  return d.toISOString().split("T")[0];
+}
+
+function formatDuration(s) {
+  return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,"0")}`;
+}
+
+const LEVEL_LABELS = {1:"Foundation",2:"Intermediate",3:"Advanced"};
+const LEVEL_COLORS = {1:"#4ade80",2:"#facc15",3:"#f87171"};
+const MEDIA_TYPES  = ["URL","PDF","MP4","Audio"];
+
+// ── SVG Icons ────────────────────────────────────────────────────────────────
+const Ico = {
+  library:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>,
+  planner:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  session:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  progress: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  plus:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  trash:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>,
+  edit:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  link:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>,
+  check:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>,
+  download: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+  upload:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  chevron:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="9 18 15 12 9 6"/></svg>,
+  x:        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+};
+
+// ── Shared styles ────────────────────────────────────────────────────────────
+const iStyle = { width:"100%",background:"#0f1320",border:"1px solid #2d3548",borderRadius:"8px",padding:"0.6rem 0.75rem",color:"#e2e8f0",fontSize:"0.9rem",boxSizing:"border-box" };
+const btnP   = { background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:"8px",color:"#fff",padding:"0.6rem 1.25rem",fontWeight:600,cursor:"pointer",fontSize:"0.875rem" };
+const btnS   = { background:"#1e2537",border:"1px solid #2d3548",borderRadius:"8px",color:"#94a3b8",padding:"0.6rem 1.25rem",fontWeight:500,cursor:"pointer",fontSize:"0.875rem" };
+
+// ── Reusable components ──────────────────────────────────────────────────────
+function Modal({title, onClose, children}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
+      <div style={{background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:"16px",width:"100%",maxWidth:"520px",maxHeight:"90vh",overflowY:"auto",padding:"1.5rem"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.25rem"}}>
+          <h3 style={{margin:0,fontSize:"1.1rem",fontFamily:"'Playfair Display',serif",color:"#e2e8f0"}}>{title}</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",padding:"4px"}}>{Ico.x}</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({label, children}) {
+  return (
+    <div style={{marginBottom:"1rem"}}>
+      <label style={{display:"block",fontSize:"0.75rem",fontWeight:600,color:"#94a3b8",marginBottom:"0.4rem",textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Badge({level}) {
+  return (
+    <span style={{background:LEVEL_COLORS[level]+"22",color:LEVEL_COLORS[level],border:`1px solid ${LEVEL_COLORS[level]}44`,borderRadius:"6px",padding:"2px 8px",fontSize:"0.7rem",fontWeight:700,whiteSpace:"nowrap"}}>
+      L{level} {LEVEL_LABELS[level]}
+    </span>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIBRARY TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function LibraryTab({data, setData}) {
+  const [expanded, setExpanded] = useState({});
+  const [modal, setModal]       = useState(null);
+  const [form, setForm]         = useState({});
+  const [csvModal, setCsvModal] = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvError, setCsvError]     = useState("");
+
+  const toggle = id => setExpanded(e => ({...e,[id]:!e[id]}));
+  const openAdd  = (type, pre={}) => { setForm(pre); setModal({type,editing:null}); };
+  const openEdit = (type, item)   => { setForm({...item}); setModal({type,editing:item.id}); };
+  const closeModal = () => { setModal(null); setForm({}); };
+
+  function save() {
+    const {type,editing} = modal;
+    if (type==="course") {
+      if (!form.title?.trim()) return;
+      editing
+        ? setData(d=>({...d,courses:d.courses.map(c=>c.id===editing?{...c,...form}:c)}))
+        : setData(d=>({...d,courses:[...d.courses,{id:uid(),title:form.title.trim(),description:form.description||""}]}));
+    } else if (type==="topic") {
+      if (!form.title?.trim()) return;
+      editing
+        ? setData(d=>({...d,topics:d.topics.map(t=>t.id===editing?{...t,...form}:t)}))
+        : setData(d=>({...d,topics:[...d.topics,{id:uid(),courseId:form.courseId,title:form.title.trim()}]}));
+    } else if (type==="exercise") {
+      if (!form.title?.trim()) return;
+      const ex={id:editing||uid(),topicId:form.topicId,title:form.title.trim(),level:parseInt(form.level)||1,mediaType:form.mediaType||"URL",mediaUrl:form.mediaUrl||"",notes:form.notes||""};
+      editing
+        ? setData(d=>({...d,exercises:d.exercises.map(e=>e.id===editing?ex:e)}))
+        : setData(d=>({...d,exercises:[...d.exercises,ex]}));
+    }
+    closeModal();
+  }
+
+  function deleteCourse(id) {
+    const tIds = data.topics.filter(t=>t.courseId===id).map(t=>t.id);
+    const eIds = data.exercises.filter(e=>tIds.includes(e.topicId)).map(e=>e.id);
+    setData(d=>({...d,courses:d.courses.filter(c=>c.id!==id),topics:d.topics.filter(t=>t.courseId!==id),exercises:d.exercises.filter(e=>!eIds.includes(e.id)),weeklyPlan:d.weeklyPlan.filter(w=>!eIds.includes(w.exerciseId))}));
+  }
+  function deleteTopic(id) {
+    const eIds = data.exercises.filter(e=>e.topicId===id).map(e=>e.id);
+    setData(d=>({...d,topics:d.topics.filter(t=>t.id!==id),exercises:d.exercises.filter(e=>e.topicId!==id),weeklyPlan:d.weeklyPlan.filter(w=>!eIds.includes(w.exerciseId))}));
+  }
+  function deleteExercise(id) {
+    setData(d=>({...d,exercises:d.exercises.filter(e=>e.id!==id),weeklyPlan:d.weeklyPlan.filter(w=>w.exerciseId!==id)}));
+  }
+
+  // CSV
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    if (!lines.length) return {error:"File is empty."};
+    const first = lines[0].toLowerCase();
+    const hasHeader = first.includes("course")||first.includes("exercise")||first.includes("topic");
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    if (!dataLines.length) return {error:"No data rows found."};
+    function splitRow(row) {
+      const cols=[]; let cur=""; let inQ=false;
+      for (let i=0;i<row.length;i++) {
+        const ch=row[i];
+        if (ch==='"') inQ=!inQ;
+        else if (ch===","&&!inQ) { cols.push(cur.trim()); cur=""; }
+        else cur+=ch;
+      }
+      cols.push(cur.trim()); return cols;
+    }
+    const rows=[];
+    for (const line of dataLines) {
+      const [course,topic,exercise,level,mediaType,mediaUrl,notes] = splitRow(line);
+      if (!course||!topic||!exercise) continue;
+      const lvl=parseInt(level);
+      rows.push({
+        course:course.trim(), topic:topic.trim(), exercise:exercise.trim(),
+        level:[1,2,3].includes(lvl)?lvl:1,
+        mediaType:MEDIA_TYPES.includes((mediaType||"").trim().toUpperCase())?(mediaType||"").trim().toUpperCase():"URL",
+        mediaUrl:(mediaUrl||"").trim(), notes:(notes||"").trim()
+      });
+    }
+    if (!rows.length) return {error:"No valid rows. Columns: course, topic, exercise, level, mediaType, mediaUrl, notes"};
+    return {rows};
+  }
+
+  function handleCsvFile(e) {
+    setCsvError(""); setCsvPreview(null);
+    const file=e.target.files[0]; if (!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const r=parseCSV(ev.target.result);
+      r.error ? setCsvError(r.error) : setCsvPreview(r.rows);
+    };
+    reader.readAsText(file); e.target.value="";
+  }
+
+  function importCSV(mode) {
+    if (!csvPreview?.length) return;
+    let courses  = mode==="replace"?[]:[...data.courses];
+    let topics   = mode==="replace"?[]:[...data.topics];
+    let exercises= mode==="replace"?[]:[...data.exercises];
+    for (const row of csvPreview) {
+      let c=courses.find(c=>c.title.toLowerCase()===row.course.toLowerCase());
+      if (!c) { c={id:uid(),title:row.course,description:""}; courses.push(c); }
+      let t=topics.find(t=>t.courseId===c.id&&t.title.toLowerCase()===row.topic.toLowerCase());
+      if (!t) { t={id:uid(),courseId:c.id,title:row.topic}; topics.push(t); }
+      const ex=exercises.find(e=>e.topicId===t.id&&e.title.toLowerCase()===row.exercise.toLowerCase());
+      if (!ex) exercises.push({id:uid(),topicId:t.id,title:row.exercise,level:row.level,mediaType:row.mediaType,mediaUrl:row.mediaUrl,notes:row.notes});
+    }
+    setData(d=>({...d,courses,topics,exercises}));
+    setCsvModal(false); setCsvPreview(null); setCsvError("");
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.25rem"}}>
+        <h2 style={{margin:0,fontFamily:"'Playfair Display',serif",fontSize:"1.4rem",color:"#e2e8f0"}}>Learning Library</h2>
+        <div style={{display:"flex",gap:"0.5rem"}}>
+          <button style={{...btnS,fontSize:"0.8rem",padding:"0.5rem 0.9rem",display:"flex",alignItems:"center",gap:"5px"}} onClick={()=>{setCsvModal(true);setCsvPreview(null);setCsvError("");}}>
+            📥 Import CSV
+          </button>
+          <button style={btnP} onClick={()=>openAdd("course")}>
+            <span style={{display:"flex",alignItems:"center",gap:"6px"}}>{Ico.plus} Add Course</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {data.courses.length===0 && (
+        <div style={{textAlign:"center",padding:"3rem",color:"#475569",border:"1px dashed #2d3548",borderRadius:"12px"}}>
+          <div style={{fontSize:"2.5rem",marginBottom:"0.75rem"}}>📚</div>
+          <p style={{margin:0}}>No courses yet. Add your first course or import a CSV.</p>
+        </div>
+      )}
+
+      {/* Course list */}
+      {data.courses.map(course=>{
+        const topics=data.topics.filter(t=>t.courseId===course.id);
+        const totalEx=data.exercises.filter(e=>topics.map(t=>t.id).includes(e.topicId)).length;
+        return (
+          <div key={course.id} style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",marginBottom:"0.75rem",overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"0.75rem",padding:"1rem",cursor:"pointer"}} onClick={()=>toggle(course.id)}>
+              <span style={{color:"#6366f1",display:"inline-flex",transform:expanded[course.id]?"rotate(90deg)":"none",transition:"transform 0.2s"}}>{Ico.chevron}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,color:"#e2e8f0",fontSize:"1rem"}}>{course.title}</div>
+                {course.description&&<div style={{fontSize:"0.78rem",color:"#64748b",marginTop:"2px"}}>{course.description}</div>}
+              </div>
+              <span style={{fontSize:"0.72rem",color:"#475569",background:"#0f1320",borderRadius:"6px",padding:"2px 8px"}}>{topics.length} topics · {totalEx} ex</span>
+              <button style={{...btnS,padding:"4px 8px"}} onClick={e=>{e.stopPropagation();openEdit("course",course)}}>{Ico.edit}</button>
+              <button style={{...btnS,padding:"4px 8px",color:"#f87171"}} onClick={e=>{e.stopPropagation();deleteCourse(course.id)}}>{Ico.trash}</button>
+            </div>
+
+            {expanded[course.id]&&(
+              <div style={{borderTop:"1px solid #2d3548",padding:"0.75rem 1rem"}}>
+                <div style={{display:"flex",justifyContent:"flex-end",marginBottom:"0.5rem"}}>
+                  <button style={{...btnS,fontSize:"0.78rem",padding:"4px 10px",display:"flex",alignItems:"center",gap:"4px"}} onClick={()=>openAdd("topic",{courseId:course.id})}>
+                    {Ico.plus} Add Topic
+                  </button>
+                </div>
+                {topics.length===0&&<div style={{color:"#475569",fontSize:"0.82rem",textAlign:"center",padding:"0.75rem"}}>No topics yet</div>}
+                {topics.map(topic=>{
+                  const exercises=data.exercises.filter(e=>e.topicId===topic.id);
+                  return (
+                    <div key={topic.id} style={{background:"#0f1320",borderRadius:"10px",marginBottom:"0.5rem",overflow:"hidden"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.6rem 0.8rem",cursor:"pointer"}} onClick={()=>toggle(topic.id)}>
+                        <span style={{color:"#8b5cf6",display:"inline-flex",transform:expanded[topic.id]?"rotate(90deg)":"none",transition:"transform 0.2s"}}>{Ico.chevron}</span>
+                        <span style={{flex:1,fontWeight:600,color:"#cbd5e1",fontSize:"0.9rem"}}>{topic.title}</span>
+                        <span style={{fontSize:"0.7rem",color:"#475569"}}>{exercises.length} ex</span>
+                        <button style={{...btnS,padding:"3px 7px",fontSize:"0.75rem"}} onClick={e=>{e.stopPropagation();openEdit("topic",topic)}}>{Ico.edit}</button>
+                        <button style={{...btnS,padding:"3px 7px",fontSize:"0.75rem",color:"#f87171"}} onClick={e=>{e.stopPropagation();deleteTopic(topic.id)}}>{Ico.trash}</button>
+                      </div>
+                      {expanded[topic.id]&&(
+                        <div style={{padding:"0.5rem 0.8rem 0.75rem"}}>
+                          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:"0.4rem"}}>
+                            <button style={{...btnS,fontSize:"0.75rem",padding:"3px 8px",display:"flex",alignItems:"center",gap:"4px"}} onClick={()=>openAdd("exercise",{topicId:topic.id,level:"1",mediaType:"URL"})}>
+                              {Ico.plus} Add Exercise
+                            </button>
+                          </div>
+                          {exercises.length===0&&<div style={{color:"#475569",fontSize:"0.8rem",textAlign:"center",padding:"0.5rem"}}>No exercises yet</div>}
+                          {exercises.map(ex=>(
+                            <div key={ex.id} style={{display:"flex",alignItems:"center",gap:"0.5rem",padding:"0.5rem 0.6rem",background:"#141929",borderRadius:"8px",marginBottom:"0.35rem"}}>
+                              <div style={{flex:1}}>
+                                <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
+                                  <span style={{fontWeight:600,color:"#e2e8f0",fontSize:"0.85rem"}}>{ex.title}</span>
+                                  <Badge level={ex.level}/>
+                                  {ex.mediaUrl&&<a href={ex.mediaUrl} target="_blank" rel="noreferrer" style={{color:"#6366f1",display:"inline-flex",alignItems:"center",gap:"3px",fontSize:"0.75rem"}}>{Ico.link}{ex.mediaType}</a>}
+                                </div>
+                                {ex.notes&&<div style={{fontSize:"0.75rem",color:"#64748b",marginTop:"2px"}}>{ex.notes}</div>}
+                              </div>
+                              <button style={{...btnS,padding:"3px 7px"}} onClick={()=>openEdit("exercise",ex)}>{Ico.edit}</button>
+                              <button style={{...btnS,padding:"3px 7px",color:"#f87171"}} onClick={()=>deleteExercise(ex.id)}>{Ico.trash}</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Course modal */}
+      {modal?.type==="course"&&(
+        <Modal title={modal.editing?"Edit Course":"New Course"} onClose={closeModal}>
+          <Field label="Course Title"><input style={iStyle} value={form.title||""} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Music Theory Fundamentals"/></Field>
+          <Field label="Description (optional)"><input style={iStyle} value={form.description||""} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Brief description"/></Field>
+          <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",marginTop:"1rem"}}>
+            <button style={btnS} onClick={closeModal}>Cancel</button>
+            <button style={btnP} onClick={save}>{modal.editing?"Save":"Add Course"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Topic modal */}
+      {modal?.type==="topic"&&(
+        <Modal title={modal.editing?"Edit Topic":"New Topic"} onClose={closeModal}>
+          <Field label="Topic Title"><input style={iStyle} value={form.title||""} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Scales & Modes"/></Field>
+          <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",marginTop:"1rem"}}>
+            <button style={btnS} onClick={closeModal}>Cancel</button>
+            <button style={btnP} onClick={save}>{modal.editing?"Save":"Add Topic"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Exercise modal */}
+      {modal?.type==="exercise"&&(
+        <Modal title={modal.editing?"Edit Exercise":"New Exercise"} onClose={closeModal}>
+          <Field label="Exercise Title"><input style={iStyle} value={form.title||""} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. C Major Scale - Two Octaves"/></Field>
+          <Field label="Complexity Level">
+            <select style={iStyle} value={form.level||1} onChange={e=>setForm(f=>({...f,level:e.target.value}))}>
+              <option value="1">Level 1 — Foundation</option>
+              <option value="2">Level 2 — Intermediate</option>
+              <option value="3">Level 3 — Advanced</option>
+            </select>
+          </Field>
+          <Field label="Media Type">
+            <select style={iStyle} value={form.mediaType||"URL"} onChange={e=>setForm(f=>({...f,mediaType:e.target.value}))}>
+              {MEDIA_TYPES.map(t=><option key={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Media Link (Google Drive / OneDrive URL)"><input style={iStyle} value={form.mediaUrl||""} onChange={e=>setForm(f=>({...f,mediaUrl:e.target.value}))} placeholder="https://drive.google.com/..."/></Field>
+          <Field label="Notes (optional)"><textarea style={{...iStyle,resize:"vertical",minHeight:"60px"}} value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Practice tips, reminders..."/></Field>
+          <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",marginTop:"1rem"}}>
+            <button style={btnS} onClick={closeModal}>Cancel</button>
+            <button style={btnP} onClick={save}>{modal.editing?"Save":"Add Exercise"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* CSV modal */}
+      {csvModal&&(
+        <Modal title="Import from CSV" onClose={()=>{setCsvModal(false);setCsvPreview(null);setCsvError("");}}>
+          <div style={{background:"#0f1320",borderRadius:"8px",padding:"0.75rem",marginBottom:"1rem",fontSize:"0.75rem",color:"#94a3b8"}}>
+            <div style={{fontWeight:700,color:"#e2e8f0",marginBottom:"4px"}}>Expected columns (in order):</div>
+            <code style={{color:"#8b5cf6"}}>course, topic, exercise, level, mediaType, mediaUrl, notes</code>
+            <div style={{marginTop:"6px",color:"#64748b"}}>Header row optional · level = 1/2/3 · mediaType = URL/PDF/MP4/Audio · mediaUrl and notes can be blank</div>
+          </div>
+          {!csvPreview&&(
+            <Field label="Choose CSV file">
+              <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"8px",padding:"1.5rem",border:"2px dashed #2d3548",borderRadius:"10px",cursor:"pointer",color:"#64748b",fontSize:"0.85rem"}}>
+                📄 Tap to select a .csv file
+                <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={handleCsvFile}/>
+              </label>
+            </Field>
+          )}
+          {csvError&&<div style={{background:"#f8717122",border:"1px solid #f8717155",borderRadius:"8px",padding:"0.75rem",color:"#f87171",fontSize:"0.82rem",marginBottom:"0.75rem"}}>⚠️ {csvError}</div>}
+          {csvPreview&&(
+            <>
+              <div style={{background:"#4ade8022",border:"1px solid #4ade8044",borderRadius:"8px",padding:"0.6rem 0.75rem",color:"#4ade80",fontSize:"0.82rem",marginBottom:"0.75rem"}}>
+                ✓ {csvPreview.length} exercises · {[...new Set(csvPreview.map(r=>r.course))].length} courses · {[...new Set(csvPreview.map(r=>r.course+"|"+r.topic))].length} topics
+              </div>
+              <div style={{maxHeight:"200px",overflowY:"auto",borderRadius:"8px",border:"1px solid #2d3548",marginBottom:"1rem",fontSize:"0.75rem"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{background:"#0f1320"}}>
+                      {["Course","Topic","Exercise","Lvl","Media"].map(h=>(
+                        <th key={h} style={{padding:"6px 8px",textAlign:"left",color:"#64748b",fontWeight:600,borderBottom:"1px solid #2d3548",whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvPreview.map((row,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #1a1f2e"}}>
+                        <td style={{padding:"5px 8px",color:"#e2e8f0"}}>{row.course}</td>
+                        <td style={{padding:"5px 8px",color:"#94a3b8"}}>{row.topic}</td>
+                        <td style={{padding:"5px 8px",color:"#cbd5e1"}}>{row.exercise}</td>
+                        <td style={{padding:"5px 8px"}}><Badge level={row.level}/></td>
+                        <td style={{padding:"5px 8px",color:"#8b5cf6"}}>{row.mediaType||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",flexWrap:"wrap"}}>
+                <button style={btnS} onClick={()=>{setCsvPreview(null);setCsvError("");}}>← Re-upload</button>
+                {data.exercises.length>0&&<button style={{...btnS,color:"#facc15",borderColor:"#facc1544"}} onClick={()=>importCSV("add")}>Merge with existing</button>}
+                <button style={btnP} onClick={()=>importCSV(data.exercises.length?"add":"replace")}>{data.exercises.length?"Import (add new)":"Import"}</button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLANNER TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function PlannerTab({data, setData}) {
+  const ws=weekStart();
+  const plan=data.weeklyPlan.filter(w=>w.weekStart===ws);
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({exerciseId:"",repsTarget:3});
+  const thisWeek=data.sessions.filter(s=>s.date>=ws);
+  const getReps=id=>thisWeek.reduce((a,s)=>a+(s.entries.find(e=>e.exerciseId===id)?.reps||0),0);
+  const getEx=id=>data.exercises.find(e=>e.id===id);
+  const getTopic=id=>data.topics.find(t=>t.id===id);
+  const getCourse=id=>data.courses.find(c=>c.id===id);
+  const days=["Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  function addToPlan() {
+    if (!form.exerciseId||plan.find(p=>p.exerciseId===form.exerciseId)) return;
+    setData(d=>({...d,weeklyPlan:[...d.weeklyPlan,{id:uid(),exerciseId:form.exerciseId,repsTarget:parseInt(form.repsTarget)||3,weekStart:ws}]}));
+    setModal(false); setForm({exerciseId:"",repsTarget:3});
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.25rem"}}>
+        <div>
+          <h2 style={{margin:0,fontFamily:"'Playfair Display',serif",fontSize:"1.4rem",color:"#e2e8f0"}}>Weekly Planner</h2>
+          <p style={{margin:"2px 0 0",fontSize:"0.78rem",color:"#64748b"}}>Week of {new Date(ws).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</p>
+        </div>
+        <button style={btnP} onClick={()=>setModal(true)}>
+          <span style={{display:"flex",alignItems:"center",gap:"6px"}}>{Ico.plus} Assign</span>
+        </button>
+      </div>
+
+      {plan.length===0&&(
+        <div style={{textAlign:"center",padding:"3rem",color:"#475569",border:"1px dashed #2d3548",borderRadius:"12px"}}>
+          <div style={{fontSize:"2.5rem",marginBottom:"0.75rem"}}>📋</div>
+          <p style={{margin:0}}>No exercises assigned this week.<br/>Add 5–6 exercises to practise.</p>
+        </div>
+      )}
+
+      <div style={{display:"grid",gap:"0.75rem"}}>
+        {plan.map(p=>{
+          const ex=getEx(p.exerciseId); if (!ex) return null;
+          const topic=getTopic(ex.topicId);
+          const course=topic?getCourse(topic.courseId):null;
+          const done=getReps(ex.id);
+          const pct=Math.min(100,Math.round((done/p.repsTarget)*100));
+          return (
+            <div key={p.id} style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",padding:"1rem"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:"0.75rem"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap",marginBottom:"4px"}}>
+                    <span style={{fontWeight:700,color:"#e2e8f0"}}>{ex.title}</span>
+                    <Badge level={ex.level}/>
+                  </div>
+                  <div style={{fontSize:"0.75rem",color:"#64748b"}}>{course?.title} › {topic?.title}</div>
+                  <div style={{marginTop:"0.6rem"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.75rem",color:"#94a3b8",marginBottom:"4px"}}>
+                      <span>Reps this week</span>
+                      <span style={{color:pct>=100?"#4ade80":"#e2e8f0",fontWeight:700}}>{done}/{p.repsTarget}</span>
+                    </div>
+                    <div style={{height:"6px",background:"#0f1320",borderRadius:"99px",overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:pct>=100?"linear-gradient(90deg,#4ade80,#22d3ee)":"linear-gradient(90deg,#6366f1,#8b5cf6)",borderRadius:"99px",transition:"width 0.4s"}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:"4px",marginTop:"0.6rem"}}>
+                    {days.map((d,i)=>{
+                      const dd=new Date(ws); dd.setDate(dd.getDate()+i);
+                      const ds=dd.toISOString().split("T")[0];
+                      const done2=data.sessions.filter(s=>s.date===ds).some(s=>s.entries.find(e=>e.exerciseId===ex.id));
+                      return (
+                        <div key={d} style={{flex:1,textAlign:"center"}}>
+                          <div style={{fontSize:"0.65rem",color:"#475569",marginBottom:"2px"}}>{d}</div>
+                          <div style={{height:"22px",borderRadius:"4px",background:done2?"#6366f1":"#0f1320",border:"1px solid",borderColor:done2?"#6366f1":"#2d3548",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {done2&&<span style={{color:"#fff"}}>{Ico.check}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <button style={{...btnS,padding:"4px 8px",color:"#f87171",flexShrink:0}} onClick={()=>setData(d=>({...d,weeklyPlan:d.weeklyPlan.filter(w=>w.id!==p.id)}))}>{Ico.trash}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {modal&&(
+        <Modal title="Assign Exercise to Week" onClose={()=>setModal(false)}>
+          <Field label="Exercise">
+            <select style={iStyle} value={form.exerciseId} onChange={e=>setForm(f=>({...f,exerciseId:e.target.value}))}>
+              <option value="">— Select an exercise —</option>
+              {data.courses.map(c=>{
+                const topics=data.topics.filter(t=>t.courseId===c.id);
+                const exs=data.exercises.filter(e=>topics.map(t=>t.id).includes(e.topicId));
+                if (!exs.length) return null;
+                return (
+                  <optgroup key={c.id} label={c.title}>
+                    {exs.map(ex=><option key={ex.id} value={ex.id} disabled={!!plan.find(p=>p.exerciseId===ex.id)}>{ex.title} (L{ex.level}){plan.find(p=>p.exerciseId===ex.id)?" ✓":""}</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </Field>
+          <Field label="Target Reps This Week">
+            <input type="number" style={iStyle} min="1" max="21" value={form.repsTarget} onChange={e=>setForm(f=>({...f,repsTarget:e.target.value}))}/>
+          </Field>
+          <div style={{display:"flex",gap:"0.5rem",justifyContent:"flex-end",marginTop:"1rem"}}>
+            <button style={btnS} onClick={()=>setModal(false)}>Cancel</button>
+            <button style={btnP} onClick={addToPlan}>Add to Week</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function SessionTab({data, setData}) {
+  const today=new Date().toISOString().split("T")[0];
+  const ws=weekStart();
+  const plan=data.weeklyPlan.filter(w=>w.weekStart===ws);
+  const [elapsed,setElapsed]=useState(0);
+  const [running,setRunning]=useState(false);
+  const [entries,setEntries]=useState(()=>plan.map(p=>({exerciseId:p.exerciseId,reps:0,notes:"",done:false})));
+  const [saved,setSaved]=useState(false);
+  const [activeMedia,setActiveMedia]=useState(null);
+  const timerRef=useRef(null);
+
+  useEffect(()=>{
+    if (running) timerRef.current=setInterval(()=>setElapsed(e=>e+1),1000);
+    else clearInterval(timerRef.current);
+    return ()=>clearInterval(timerRef.current);
+  },[running]);
+
+  useEffect(()=>{
+    setEntries(plan.map(p=>({exerciseId:p.exerciseId,reps:0,notes:"",done:false})));
+    setSaved(false);
+  },[data.weeklyPlan.length]);
+
+  const updEntry=(id,field,val)=>setEntries(es=>es.map(e=>e.exerciseId===id?{...e,[field]:val}:e));
+
+  function saveSession() {
+    const ne=entries.filter(e=>e.reps>0||e.notes);
+    if (!ne.length) return;
+    setData(d=>({...d,sessions:[...d.sessions,{id:uid(),date:today,duration:elapsed,entries:ne.map(e=>({exerciseId:e.exerciseId,reps:e.reps,notes:e.notes}))}]}));
+    setSaved(true); setRunning(false);
+  }
+
+  const getEx=id=>data.exercises.find(e=>e.id===id);
+  const pct=Math.min(100,Math.round((elapsed/(30*60))*100));
+
+  return (
+    <div>
+      <h2 style={{margin:"0 0 0.25rem",fontFamily:"'Playfair Display',serif",fontSize:"1.4rem",color:"#e2e8f0"}}>Today's Session</h2>
+      <p style={{margin:"0 0 1rem",fontSize:"0.78rem",color:"#64748b"}}>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p>
+
+      {/* Timer */}
+      <div style={{background:"linear-gradient(135deg,#1a1f2e,#141929)",border:"1px solid #2d3548",borderRadius:"16px",padding:"1.25rem",marginBottom:"1.25rem",textAlign:"center"}}>
+        <div style={{fontSize:"3rem",fontFamily:"'Playfair Display',serif",color:"#e2e8f0",letterSpacing:"0.05em",marginBottom:"0.5rem"}}>{formatDuration(elapsed)}</div>
+        <div style={{height:"8px",background:"#0f1320",borderRadius:"99px",overflow:"hidden",marginBottom:"0.75rem"}}>
+          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899)",borderRadius:"99px",transition:"width 1s linear"}}/>
+        </div>
+        <div style={{fontSize:"0.75rem",color:"#64748b",marginBottom:"1rem"}}>30-minute session goal · {pct}% complete</div>
+        <div style={{display:"flex",gap:"0.75rem",justifyContent:"center"}}>
+          <button style={btnP} onClick={()=>setRunning(r=>!r)}>{running?"⏸ Pause":elapsed?"▶ Resume":"▶ Start"}</button>
+          {elapsed>0&&!saved&&<button style={btnS} onClick={saveSession}>💾 Save Session</button>}
+          {saved&&<span style={{color:"#4ade80",fontWeight:600,fontSize:"0.875rem",display:"flex",alignItems:"center",gap:"4px"}}>{Ico.check} Saved!</span>}
+        </div>
+      </div>
+
+      {plan.length===0&&(
+        <div style={{textAlign:"center",padding:"2rem",color:"#475569",border:"1px dashed #2d3548",borderRadius:"12px"}}>
+          <p style={{margin:0}}>No exercises in this week's plan. Go to Planner to add some.</p>
+        </div>
+      )}
+
+      <div style={{display:"grid",gap:"0.75rem"}}>
+        {entries.map(entry=>{
+          const ex=getEx(entry.exerciseId); if (!ex) return null;
+          const planItem=plan.find(p=>p.exerciseId===ex.id);
+          return (
+            <div key={ex.id} style={{background:"#141929",border:`1px solid ${entry.done?"#6366f1":"#2d3548"}`,borderRadius:"12px",padding:"1rem",transition:"border-color 0.2s"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:"0.75rem"}}>
+                <button onClick={()=>updEntry(ex.id,"done",!entry.done)} style={{width:"24px",height:"24px",borderRadius:"6px",border:`2px solid ${entry.done?"#6366f1":"#2d3548"}`,background:entry.done?"#6366f1":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:"2px"}}>
+                  {entry.done&&<span style={{color:"#fff"}}>{Ico.check}</span>}
+                </button>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"0.5rem",flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,color:entry.done?"#6366f1":"#e2e8f0",fontSize:"0.95rem"}}>{ex.title}</span>
+                    <Badge level={ex.level}/>
+                  </div>
+                  {ex.notes&&<div style={{fontSize:"0.75rem",color:"#64748b",marginTop:"2px"}}>{ex.notes}</div>}
+                  <div style={{display:"flex",gap:"0.75rem",marginTop:"0.75rem",flexWrap:"wrap",alignItems:"center"}}>
+                    <div>
+                      <label style={{fontSize:"0.7rem",color:"#64748b",display:"block",marginBottom:"2px"}}>REPS TODAY</label>
+                      <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                        <button style={{...btnS,padding:"2px 10px",fontSize:"1.1rem"}} onClick={()=>updEntry(ex.id,"reps",Math.max(0,entry.reps-1))}>−</button>
+                        <span style={{fontWeight:700,color:"#e2e8f0",minWidth:"24px",textAlign:"center"}}>{entry.reps}</span>
+                        <button style={{...btnS,padding:"2px 10px",fontSize:"1.1rem"}} onClick={()=>updEntry(ex.id,"reps",entry.reps+1)}>+</button>
+                        <span style={{fontSize:"0.7rem",color:"#475569"}}>/ {planItem?.repsTarget} target</span>
+                      </div>
+                    </div>
+                    {ex.mediaUrl&&(
+                      <button style={{...btnS,fontSize:"0.75rem",padding:"4px 10px",display:"flex",alignItems:"center",gap:"4px",color:"#8b5cf6"}} onClick={()=>setActiveMedia(activeMedia===ex.id?null:ex.id)}>
+                        {Ico.link} {ex.mediaType}
+                      </button>
+                    )}
+                  </div>
+                  {activeMedia===ex.id&&ex.mediaUrl&&(
+                    <div style={{marginTop:"0.75rem",borderRadius:"8px",overflow:"hidden",border:"1px solid #2d3548"}}>
+                      {ex.mediaType==="MP4"?<video controls style={{width:"100%",maxHeight:"240px",background:"#000"}} src={ex.mediaUrl}/>
+                      :ex.mediaType==="Audio"?<audio controls style={{width:"100%"}} src={ex.mediaUrl}/>
+                      :ex.mediaType==="PDF"?<iframe src={ex.mediaUrl} style={{width:"100%",height:"320px",border:"none"}} title={ex.title}/>
+                      :<a href={ex.mediaUrl} target="_blank" rel="noreferrer" style={{display:"block",padding:"0.75rem",color:"#6366f1",fontSize:"0.85rem"}}>Open {ex.title} →</a>}
+                    </div>
+                  )}
+                  <textarea style={{...iStyle,marginTop:"0.6rem",minHeight:"48px",resize:"vertical",fontSize:"0.8rem"}} placeholder="Session notes…" value={entry.notes} onChange={e=>updEntry(ex.id,"notes",e.target.value)}/>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROGRESS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function ProgressTab({data}) {
+  const [view,setView]=useState("overview");
+  const ws=weekStart();
+  const recent=[...data.sessions].sort((a,b)=>b.date.localeCompare(a.date));
+  const thisWeek=data.sessions.filter(s=>s.date>=ws);
+  const plan=data.weeklyPlan.filter(w=>w.weekStart===ws);
+  const getEx=id=>data.exercises.find(e=>e.id===id);
+  const getTopic=id=>data.topics.find(t=>t.id===id);
+  const getCourse=id=>data.courses.find(c=>c.id===id);
+
+  function getStats(id) {
+    const ents=data.sessions.flatMap(s=>s.entries.filter(e=>e.exerciseId===id).map(e=>({...e,date:s.date})));
+    return {total:ents.reduce((a,e)=>a+e.reps,0),sessions:ents.length,lastDate:ents[0]?.date};
+  }
+
+  function Bar({value,max,color="#6366f1"}) {
+    const p=max?Math.min(100,Math.round((value/max)*100)):0;
+    return <div style={{height:"8px",background:"#0f1320",borderRadius:"99px",overflow:"hidden"}}><div style={{height:"100%",width:`${p}%`,background:color,borderRadius:"99px"}}/></div>;
+  }
+
+  const totSessions=data.sessions.length;
+  const totReps=data.sessions.flatMap(s=>s.entries).reduce((a,e)=>a+e.reps,0);
+  const wkReps=thisWeek.flatMap(s=>s.entries).reduce((a,e)=>a+e.reps,0);
+
+  return (
+    <div>
+      <h2 style={{margin:"0 0 1rem",fontFamily:"'Playfair Display',serif",fontSize:"1.4rem",color:"#e2e8f0"}}>Progress</h2>
+      <div style={{display:"flex",gap:"0.5rem",marginBottom:"1.25rem"}}>
+        {["overview","diary"].map(v=>(
+          <button key={v} style={{...btnS,background:view===v?"#6366f122":"#1e2537",color:view===v?"#8b5cf6":"#94a3b8",borderColor:view===v?"#6366f1":"#2d3548",textTransform:"capitalize"}} onClick={()=>setView(v)}>{v}</button>
+        ))}
+      </div>
+
+      {view==="overview"&&(
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0.75rem",marginBottom:"1.25rem"}}>
+            {[{label:"Sessions",value:totSessions,icon:"🎯"},{label:"Total Reps",value:totReps,icon:"🔁"},{label:"This Week",value:wkReps+" reps",icon:"📅"}].map(c=>(
+              <div key={c.label} style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",padding:"0.9rem",textAlign:"center"}}>
+                <div style={{fontSize:"1.5rem"}}>{c.icon}</div>
+                <div style={{fontSize:"1.25rem",fontWeight:700,color:"#e2e8f0",fontFamily:"'Playfair Display',serif"}}>{c.value}</div>
+                <div style={{fontSize:"0.7rem",color:"#64748b",marginTop:"2px"}}>{c.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {plan.length>0&&(
+            <div style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",padding:"1rem",marginBottom:"1rem"}}>
+              <h3 style={{margin:"0 0 0.75rem",fontSize:"0.9rem",color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em"}}>This Week's Plan</h3>
+              {plan.map(p=>{
+                const ex=getEx(p.exerciseId); if (!ex) return null;
+                const done=thisWeek.reduce((a,s)=>a+(s.entries.find(e=>e.exerciseId===ex.id)?.reps||0),0);
+                const pct=Math.min(100,Math.round((done/p.repsTarget)*100));
+                return (
+                  <div key={p.id} style={{marginBottom:"0.75rem"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.82rem",color:"#cbd5e1",marginBottom:"4px"}}>
+                      <span>{ex.title} <Badge level={ex.level}/></span>
+                      <span style={{color:pct>=100?"#4ade80":"#94a3b8",fontWeight:600}}>{done}/{p.repsTarget}</span>
+                    </div>
+                    <Bar value={done} max={p.repsTarget} color={pct>=100?"#4ade80":"#6366f1"}/>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {data.exercises.length>0&&(
+            <div style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",padding:"1rem"}}>
+              <h3 style={{margin:"0 0 0.75rem",fontSize:"0.9rem",color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em"}}>All Exercises</h3>
+              {data.exercises.map(ex=>{
+                const st=getStats(ex.id);
+                const topic=getTopic(ex.topicId);
+                const course=topic?getCourse(topic.courseId):null;
+                return (
+                  <div key={ex.id} style={{marginBottom:"0.75rem",paddingBottom:"0.75rem",borderBottom:"1px solid #1a1f2e"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"4px"}}>
+                      <div>
+                        <span style={{fontWeight:600,color:"#e2e8f0",fontSize:"0.85rem"}}>{ex.title}</span>
+                        <span style={{marginLeft:"6px"}}><Badge level={ex.level}/></span>
+                        <div style={{fontSize:"0.72rem",color:"#475569"}}>{course?.title} › {topic?.title}</div>
+                      </div>
+                      <div style={{textAlign:"right",fontSize:"0.75rem",color:"#64748b"}}>
+                        <div><b style={{color:"#e2e8f0"}}>{st.total}</b> reps</div>
+                        <div>{st.sessions} sessions</div>
+                        {st.lastDate&&<div>Last: {new Date(st.lastDate).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</div>}
+                      </div>
+                    </div>
+                    <Bar value={st.total} max={Math.max(1,...data.exercises.map(e=>getStats(e.id).total))}/>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {view==="diary"&&(
+        <div>
+          {recent.length===0&&(
+            <div style={{textAlign:"center",padding:"3rem",color:"#475569",border:"1px dashed #2d3548",borderRadius:"12px"}}>
+              <div style={{fontSize:"2.5rem",marginBottom:"0.75rem"}}>📖</div>
+              <p style={{margin:0}}>No sessions recorded yet.</p>
+            </div>
+          )}
+          {recent.map(session=>(
+            <div key={session.id} style={{background:"#141929",border:"1px solid #2d3548",borderRadius:"12px",padding:"1rem",marginBottom:"0.75rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.75rem"}}>
+                <div style={{fontWeight:700,color:"#e2e8f0",fontSize:"0.9rem"}}>{new Date(session.date).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+                {session.duration&&<div style={{fontSize:"0.75rem",color:"#64748b",background:"#0f1320",borderRadius:"6px",padding:"2px 8px"}}>⏱ {formatDuration(session.duration)}</div>}
+              </div>
+              {session.entries.map((entry,i)=>{
+                const ex=getEx(entry.exerciseId); if (!ex) return null;
+                return (
+                  <div key={i} style={{display:"flex",gap:"0.5rem",alignItems:"flex-start",marginBottom:"0.5rem",padding:"0.5rem",background:"#0f1320",borderRadius:"8px"}}>
+                    <div style={{flex:1}}>
+                      <span style={{fontWeight:600,color:"#cbd5e1",fontSize:"0.85rem"}}>{ex.title}</span>
+                      <span style={{marginLeft:"6px"}}><Badge level={ex.level}/></span>
+                      {entry.notes&&<div style={{fontSize:"0.78rem",color:"#64748b",marginTop:"3px",fontStyle:"italic"}}>{entry.notes}</div>}
+                    </div>
+                    <span style={{fontWeight:700,color:"#8b5cf6",fontSize:"0.85rem",whiteSpace:"nowrap"}}>{entry.reps} rep{entry.reps!==1?"s":""}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROOT APP
+// ═══════════════════════════════════════════════════════════════════════════
+function App() {
+  const [tab,setTab]=useState("library");
+  const [data,setDataRaw]=useState(()=>loadData()||DEFAULT_STATE);
+
+  function setData(updater) {
+    setDataRaw(prev=>{
+      const next=typeof updater==="function"?updater(prev):updater;
+      saveData(next);
+      return next;
+    });
+  }
+
+  function exportData() {
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download="practice-diary-backup.json"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importData(e) {
+    const file=e.target.files[0]; if (!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try {
+        const imp=JSON.parse(ev.target.result);
+        if (imp.courses&&imp.exercises) { setData(imp); alert("Data imported successfully!"); }
+        else alert("Invalid backup file.");
+      } catch { alert("Could not read file."); }
+    };
+    reader.readAsText(file); e.target.value="";
+  }
+
+  const tabs=[
+    {id:"library",label:"Library",icon:Ico.library},
+    {id:"planner",label:"Planner",icon:Ico.planner},
+    {id:"session",label:"Session",icon:Ico.session},
+    {id:"progress",label:"Progress",icon:Ico.progress},
+  ];
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0a0d18",fontFamily:"'DM Sans',sans-serif",color:"#e2e8f0"}}>
+      {/* Header */}
+      <div style={{background:"#0f1320",borderBottom:"1px solid #2d3548",padding:"0.75rem 1rem",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:100}}>
+        <div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:"1.1rem",color:"#e2e8f0",letterSpacing:"-0.01em"}}>Practice Studio</div>
+          <div style={{fontSize:"0.65rem",color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase"}}>Learning Diary & Planner</div>
+        </div>
+        <div style={{display:"flex",gap:"0.4rem"}}>
+          <button style={{...btnS,padding:"5px 9px",display:"flex",alignItems:"center",gap:"4px"}} onClick={exportData} title="Export backup">{Ico.download}</button>
+          <label style={{...btnS,padding:"5px 9px",display:"flex",alignItems:"center",gap:"4px",cursor:"pointer"}} title="Import backup">
+            {Ico.upload}
+            <input type="file" accept=".json" style={{display:"none"}} onChange={importData}/>
+          </label>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{maxWidth:"680px",margin:"0 auto",padding:"1rem 1rem 5rem"}}>
+        {tab==="library" &&<LibraryTab  data={data} setData={setData}/>}
+        {tab==="planner" &&<PlannerTab  data={data} setData={setData}/>}
+        {tab==="session" &&<SessionTab  data={data} setData={setData}/>}
+        {tab==="progress"&&<ProgressTab data={data}/>}
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#0f1320",borderTop:"1px solid #2d3548",display:"flex",justifyContent:"space-around",padding:"0.5rem 0 max(0.75rem, env(safe-area-inset-bottom))",zIndex:100}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"0.3rem 1rem",color:tab===t.id?"#8b5cf6":"#475569",transition:"color 0.15s"}}>
+            <span style={{transform:tab===t.id?"scale(1.15)":"scale(1)",transition:"transform 0.15s"}}>{t.icon}</span>
+            <span style={{fontSize:"0.65rem",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
